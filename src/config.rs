@@ -1138,6 +1138,12 @@ impl Config {
     }
 
     pub fn get_id() -> String {
+        // HARD_SETTINGS["id"] má prioritu (napr. forced hostname)
+        if let Some(id) = HARD_SETTINGS.read().unwrap().get("id").cloned() {
+            if !id.is_empty() {
+                return id;
+            }
+        }
         let mut id = CONFIG.read().unwrap().id.clone();
         if id.is_empty() {
             if let Some(tmp) = Config::gen_id() {
@@ -1149,6 +1155,12 @@ impl Config {
     }
 
     pub fn get_id_or(b: String) -> String {
+        // HARD_SETTINGS["id"] má prioritu (napr. forced hostname)
+        if let Some(id) = HARD_SETTINGS.read().unwrap().get("id").cloned() {
+            if !id.is_empty() {
+                return id;
+            }
+        }
         let a = CONFIG.read().unwrap().id.clone();
         if a.is_empty() {
             b

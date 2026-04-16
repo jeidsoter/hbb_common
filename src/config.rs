@@ -964,12 +964,13 @@ impl Config {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn gen_id() -> Option<String> {
-        let hostname_as_id = BUILTIN_SETTINGS
-            .read()
-            .unwrap()
-            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
-            .map(|v| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, v))
-            .unwrap_or(false);
+        let check_map = |map: &std::collections::HashMap<String, String>| {
+            map.get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+                .map(|v| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, v))
+                .unwrap_or(false)
+        };
+        let hostname_as_id = check_map(&BUILTIN_SETTINGS.read().unwrap())
+            || check_map(&OVERWRITE_SETTINGS.read().unwrap());
         if hostname_as_id {
             match whoami::fallible::hostname() {
                 Ok(h) => Some(h.replace(" ", "-")),

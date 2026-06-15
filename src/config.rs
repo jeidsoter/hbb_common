@@ -1027,12 +1027,10 @@ impl Config {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn gen_id() -> Option<String> {
-        let hostname_as_id = BUILTIN_SETTINGS
-            .read()
-            .unwrap()
-            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
-            .map(|v| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, v))
-            .unwrap_or(false);
+        let hostname_as_id = hostname_as_id_enabled(
+            &BUILTIN_SETTINGS.read().unwrap(),
+            &OVERWRITE_SETTINGS.read().unwrap(),
+        );
         if hostname_as_id {
             match whoami::fallible::hostname() {
                 Ok(h) => Some(h.replace(" ", "-")),
@@ -1201,23 +1199,21 @@ impl Config {
     }
 
     pub fn get_id() -> String {
-        let mut id = CONFIG.read().unwrap().id.clone();
-        if id.is_empty() {
-            if let Some(tmp) = Config::gen_id() {
-                id = tmp;
-                Config::set_id(&id);
-            }
+        let configured_id = CONFIG.read().unwrap().id.clone();
+        if let Some(id) = preferred_id(&HARD_SETTINGS.read().unwrap(), &configured_id) {
+            return id;
+        }
+        let mut id = String::new();
+        if let Some(tmp) = Config::gen_id() {
+            id = tmp;
+            Config::set_id(&id);
         }
         id
     }
 
     pub fn get_id_or(b: String) -> String {
-        let a = CONFIG.read().unwrap().id.clone();
-        if a.is_empty() {
-            b
-        } else {
-            a
-        }
+        let configured_id = CONFIG.read().unwrap().id.clone();
+        preferred_id(&HARD_SETTINGS.read().unwrap(), &configured_id).unwrap_or(b)
     }
 
     pub fn get_options() -> HashMap<String, String> {
@@ -2756,6 +2752,28 @@ fn get_or(
         .cloned()
 }
 
+fn hostname_as_id_enabled(
+    builtin: &HashMap<String, String>,
+    overwrite: &HashMap<String, String>,
+) -> bool {
+    let enabled = |settings: &HashMap<String, String>| {
+        settings
+            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+            .map(|value| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, value))
+            .unwrap_or(false)
+    };
+    enabled(builtin) || enabled(overwrite)
+}
+
+fn nonempty_forced_id(hard_settings: &HashMap<String, String>) -> Option<String> {
+    hard_settings.get("id").filter(|id| !id.is_empty()).cloned()
+}
+
+fn preferred_id(hard_settings: &HashMap<String, String>, configured_id: &str) -> Option<String> {
+    nonempty_forced_id(hard_settings)
+        .or_else(|| (!configured_id.is_empty()).then(|| configured_id.to_owned()))
+}
+
 #[inline]
 fn is_option_can_save(
     overwrite: &RwLock<HashMap<String, String>>,
@@ -3339,6 +3357,77 @@ mod tests {
         let _guard = CONFIG_STATE_TEST_LOCK.lock().unwrap();
         let _state_guard = ConfigStateTestGuard::new(config, hard_settings);
         test()
+    }
+
+    #[test]
+    fn fnsp_hostname_as_id_accepts_overwrite_setting() {
+        let builtin = HashMap::new();
+        let overwrite =
+            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "Y".to_owned())]);
+
+        assert!(hostname_as_id_enabled(&builtin, &overwrite));
+    }
+
+    #[test]
+    fn fnsp_hostname_as_id_accepts_builtin_setting() {
+        let builtin =
+            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "Y".to_owned())]);
+        let overwrite = HashMap::new();
+
+        assert!(hostname_as_id_enabled(&builtin, &overwrite));
+    }
+
+    #[test]
+    fn fnsp_hostname_as_id_rejects_false_or_absent_settings() {
+        let builtin =
+            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "N".to_owned())]);
+        let overwrite = HashMap::new();
+
+        assert!(!hostname_as_id_enabled(&builtin, &overwrite));
+        assert!(!hostname_as_id_enabled(&HashMap::new(), &HashMap::new()));
+    }
+
+    #[test]
+    fn fnsp_forced_id_preserves_case() {
+        let hard_settings = HashMap::from([("id".to_owned(), "FnSp-WorkStation".to_owned())]);
+
+        assert_eq!(
+            nonempty_forced_id(&hard_settings),
+            Some("FnSp-WorkStation".to_owned())
+        );
+    }
+
+    #[test]
+    fn fnsp_empty_or_absent_forced_id_returns_none() {
+        let hard_settings = HashMap::from([("id".to_owned(), String::new())]);
+
+        assert_eq!(nonempty_forced_id(&hard_settings), None);
+        assert_eq!(nonempty_forced_id(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn fnsp_forced_id_takes_priority_over_configured_id() {
+        let hard_settings = HashMap::from([("id".to_owned(), "FnSp-WorkStation".to_owned())]);
+
+        assert_eq!(
+            preferred_id(&hard_settings, "configured-id"),
+            Some("FnSp-WorkStation".to_owned())
+        );
+    }
+
+    #[test]
+    fn fnsp_empty_forced_id_uses_configured_id_or_fallback() {
+        let hard_settings = HashMap::from([("id".to_owned(), String::new())]);
+
+        assert_eq!(
+            preferred_id(&hard_settings, "Configured-ID"),
+            Some("Configured-ID".to_owned())
+        );
+        assert_eq!(preferred_id(&hard_settings, ""), None);
+        assert_eq!(
+            preferred_id(&hard_settings, "").unwrap_or_else(|| "Fallback-ID".to_owned()),
+            "Fallback-ID"
+        );
     }
 
     #[test]

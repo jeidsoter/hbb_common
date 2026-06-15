@@ -1027,9 +1027,19 @@ impl Config {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn gen_id() -> Option<String> {
-        let hostname_as_id = hostname_as_id_enabled(
-            &BUILTIN_SETTINGS.read().unwrap(),
-            &OVERWRITE_SETTINGS.read().unwrap(),
+        let builtin_value = BUILTIN_SETTINGS
+            .read()
+            .unwrap()
+            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+            .cloned();
+        let overwrite_value = OVERWRITE_SETTINGS
+            .read()
+            .unwrap()
+            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+            .cloned();
+        let hostname_as_id = hostname_as_id_enabled_from_values(
+            builtin_value.as_deref(),
+            overwrite_value.as_deref(),
         );
         if hostname_as_id {
             match whoami::fallible::hostname() {
@@ -1199,9 +1209,12 @@ impl Config {
     }
 
     pub fn get_id() -> String {
-        let configured_id = CONFIG.read().unwrap().id.clone();
-        if let Some(id) = preferred_id(&HARD_SETTINGS.read().unwrap(), &configured_id) {
+        if let Some(id) = nonempty_forced_id(&HARD_SETTINGS.read().unwrap()) {
             return id;
+        }
+        let configured_id = CONFIG.read().unwrap().id.clone();
+        if !configured_id.is_empty() {
+            return configured_id;
         }
         let mut id = String::new();
         if let Some(tmp) = Config::gen_id() {
@@ -1212,8 +1225,15 @@ impl Config {
     }
 
     pub fn get_id_or(b: String) -> String {
+        if let Some(id) = nonempty_forced_id(&HARD_SETTINGS.read().unwrap()) {
+            return id;
+        }
         let configured_id = CONFIG.read().unwrap().id.clone();
-        preferred_id(&HARD_SETTINGS.read().unwrap(), &configured_id).unwrap_or(b)
+        if configured_id.is_empty() {
+            b
+        } else {
+            configured_id
+        }
     }
 
     pub fn get_options() -> HashMap<String, String> {
@@ -2752,23 +2772,23 @@ fn get_or(
         .cloned()
 }
 
-fn hostname_as_id_enabled(
-    builtin: &HashMap<String, String>,
-    overwrite: &HashMap<String, String>,
+fn hostname_as_id_enabled_from_values(
+    builtin_value: Option<&str>,
+    overwrite_value: Option<&str>,
 ) -> bool {
-    let enabled = |settings: &HashMap<String, String>| {
-        settings
-            .get(keys::OPTION_ALLOW_HOSTNAME_AS_ID)
+    let enabled = |value: Option<&str>| {
+        value
             .map(|value| option2bool(keys::OPTION_ALLOW_HOSTNAME_AS_ID, value))
             .unwrap_or(false)
     };
-    enabled(builtin) || enabled(overwrite)
+    enabled(builtin_value) || enabled(overwrite_value)
 }
 
 fn nonempty_forced_id(hard_settings: &HashMap<String, String>) -> Option<String> {
     hard_settings.get("id").filter(|id| !id.is_empty()).cloned()
 }
 
+#[cfg(test)]
 fn preferred_id(hard_settings: &HashMap<String, String>, configured_id: &str) -> Option<String> {
     nonempty_forced_id(hard_settings)
         .or_else(|| (!configured_id.is_empty()).then(|| configured_id.to_owned()))
@@ -3360,31 +3380,19 @@ mod tests {
     }
 
     #[test]
-    fn fnsp_hostname_as_id_accepts_overwrite_setting() {
-        let builtin = HashMap::new();
-        let overwrite =
-            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "Y".to_owned())]);
-
-        assert!(hostname_as_id_enabled(&builtin, &overwrite));
+    fn fnsp_hostname_as_id_builtin_true_overrides_overwrite_false() {
+        assert!(hostname_as_id_enabled_from_values(Some("Y"), Some("N")));
     }
 
     #[test]
-    fn fnsp_hostname_as_id_accepts_builtin_setting() {
-        let builtin =
-            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "Y".to_owned())]);
-        let overwrite = HashMap::new();
-
-        assert!(hostname_as_id_enabled(&builtin, &overwrite));
+    fn fnsp_hostname_as_id_overwrite_true_overrides_builtin_false() {
+        assert!(hostname_as_id_enabled_from_values(Some("N"), Some("Y")));
     }
 
     #[test]
-    fn fnsp_hostname_as_id_rejects_false_or_absent_settings() {
-        let builtin =
-            HashMap::from([(keys::OPTION_ALLOW_HOSTNAME_AS_ID.to_owned(), "N".to_owned())]);
-        let overwrite = HashMap::new();
-
-        assert!(!hostname_as_id_enabled(&builtin, &overwrite));
-        assert!(!hostname_as_id_enabled(&HashMap::new(), &HashMap::new()));
+    fn fnsp_hostname_as_id_invalid_or_absent_settings_are_disabled() {
+        assert!(!hostname_as_id_enabled_from_values(Some("invalid"), None));
+        assert!(!hostname_as_id_enabled_from_values(None, None));
     }
 
     #[test]

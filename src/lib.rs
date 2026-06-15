@@ -260,6 +260,41 @@ pub fn is_valid_custom_id(id: &str) -> bool {
         .is_match(id)
 }
 
+#[cfg(test)]
+mod fnsp_id_tests {
+    use super::is_valid_custom_id;
+
+    #[test]
+    fn fnsp_custom_id_accepts_two_characters() {
+        assert!(is_valid_custom_id("AB"));
+    }
+
+    #[test]
+    fn fnsp_custom_id_accepts_mixed_case_four_characters() {
+        assert!(is_valid_custom_id("AbCd"));
+    }
+
+    #[test]
+    fn fnsp_custom_id_accepts_sixteen_characters() {
+        assert!(is_valid_custom_id("Abcdefghijklmnop"));
+    }
+
+    #[test]
+    fn fnsp_custom_id_rejects_one_character() {
+        assert!(!is_valid_custom_id("A"));
+    }
+
+    #[test]
+    fn fnsp_custom_id_rejects_seventeen_characters() {
+        assert!(!is_valid_custom_id("Abcdefghijklmnopq"));
+    }
+
+    #[test]
+    fn fnsp_custom_id_rejects_leading_digit() {
+        assert!(!is_valid_custom_id("1Abc"));
+    }
+}
+
 // Support 1.1.10-1, the number after - is a patch version.
 pub fn get_version_number(v: &str) -> i64 {
     let mut versions = v.split('-');
@@ -531,36 +566,6 @@ pub fn time_based_rand() -> u32 {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn fnsp_custom_id_accepts_two_characters() {
-        assert!(is_valid_custom_id("AB"));
-    }
-
-    #[test]
-    fn fnsp_custom_id_accepts_mixed_case_four_characters() {
-        assert!(is_valid_custom_id("AbCd"));
-    }
-
-    #[test]
-    fn fnsp_custom_id_accepts_sixteen_characters() {
-        assert!(is_valid_custom_id("Abcdefghijklmnop"));
-    }
-
-    #[test]
-    fn fnsp_custom_id_rejects_one_character() {
-        assert!(!is_valid_custom_id("A"));
-    }
-
-    #[test]
-    fn fnsp_custom_id_rejects_seventeen_characters() {
-        assert!(!is_valid_custom_id("Abcdefghijklmnopq"));
-    }
-
-    #[test]
-    fn fnsp_custom_id_rejects_leading_digit() {
-        assert!(!is_valid_custom_id("1Abc"));
-    }
 
     #[test]
     fn test_mangle() {
